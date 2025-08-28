@@ -1,139 +1,143 @@
-# first_follow.py to compute first and follow 
+# first_follow.py
+# Compute FIRST and FOLLOW sets for a grammar dictionary
+# Input format: dict[str, list[str]]
+# Output: (first_sets, follow_sets), both dict[str, set[str]]
 
-# خواندن گرامر از فایل ادیت‌شده
-with open("grammar_edited.txt", "r", encoding="utf-8") as f:
-    lines = f.readlines()
+EPSILON = "ε"
 
-# تعریف کلاس NonTerminal
-class NonTerminal:
-    def __init__(self, symbol):
-        self.symbol = symbol
-        self.rules = []
-        self.first = []
-        self.firstdepen = []
-        self.followdepen = []
-        self.follow = []
+def compute_first_follow(grammar):
+    """
+    grammar: dict { NonTerminal: [production1, production2, ...] }
+    Returns:
+        first_sets  : dict { NonTerminal: set(terminals/ε) }
+        follow_sets : dict { NonTerminal: set(terminals/$) }
+    """
+    nonterminals = list(grammar.keys())
+    first_sets = {nt: set() for nt in nonterminals}
+    follow_sets = {nt: set() for nt in nonterminals}
 
-# تعریف کلاس Rule
-class Rule:
-    def __init__(self, s: str, nont: NonTerminal):
-        self.s = s
-        self.nont = nont
-        self.nont.rules.append(self)
-
-# ساخت NonTerminal و Rule ها
-nonterminals = []
-for line in lines:
-    line = line.strip()
-    if not line:
-        continue
-    symbol, rule = line.split(" => ")
-    nonterminal = NonTerminal(symbol)
-    nonterminals.append(nonterminal)
-    rules = rule.split(" | ")
-    for r in rules:
-        Rule(r, nonterminal)
-
-# افزودن $ به Follow اولین NonTerminal (شروع گرامر)
-nonterminals[0].follow.append("$")
-
-# تابع محاسبه First
-def first(nt):
-    for rule in nt.rules:
-        if rule.s[0].islower() or rule.s[0] in "()$+-*/id":  # اگر ترمینال باشد
-            nt.first.append(rule.s[0])
-        elif rule.s[0].isupper():  # اگر نان‌ترمینال باشد
-            for c in rule.s:
-                if c.isupper():
-                    nt2 = next((n for n in nonterminals if n.symbol == c), None)
-                    if nt2 not in nt.firstdepen:
-                        nt.firstdepen.append(nt2)
-                        nt.firstdepen.extend(nt2.firstdepen)
-                        d = first(nt2)
-                        nt.first.extend([x for x in d if x != "ε"])
-                        if "ε" in d:
-                            if c == rule.s[-1]:
-                                nt.first.append("ε")
-                            continue
-                        else:
-                            break
-                    else:
-                        if "ε" in nt2.first:
-                            continue
-                        else:
-                            break
-                else:
-                    nt.first.append(c)
-                    break
-        else:  # اگر ε باشد
-            nt.first.append("ε")
-    nt.first = list(set(nt.first))
-    return nt.first
-
-# محاسبه First برای همه نان‌ترمینال‌ها
-for nt in nonterminals:
-    if len(nt.first) == 0:
-        first(nt)
-
-# چاپ First ها
-for nt in nonterminals:
-    print(f"First({nt.symbol}): ", "{", end="")
-    for i in range(len(nt.first)):
-        print(f" {nt.first[i]}", end="")
-        if i != len(nt.first) - 1:
-            print(",", end="")
-        else:
-            print(" }")
-
-# تابع محاسبه Follow
-def follow():
-    for nt in nonterminals:
-        for rule in nt.rules:
-            for j in range(len(rule.s)):
-                if rule.s[j].isupper():
-                    nt2 = next(n for n in nonterminals if n.symbol == rule.s[j])
-                    if j == len(rule.s) - 1:
-                        nt2.followdepen.append(nt)
+    # ---- FIRST computation ----
+    def first_of_symbol(sym, visited=None):
+        """
+        Returns FIRST(sym):
+        - if sym is terminal or ε: {sym}
+        - if sym is NonTerminal: FIRST(NonTerminal)
+        """
+        if visited is None:
+            visited = set()
+        if sym not in grammar:   # it's a terminal
+            return {sym}
+        if sym in visited:
+            return first_sets[sym]  # avoid infinite recursion
+        visited.add(sym)
+        result = set()
+        for production in grammar[sym]:
+            if production == EPSILON:
+                result.add(EPSILON)
+                continue
+            # scan each symbol in production
+            i = 0
+            while i < len(production):
+                # symbol-by-symbol: we need to parse nonterminals vs terminals carefully
+                # We'll assume productions are written without spaces and nonterminals are uppercase letters.
+                s = production[i]
+                if s.isupper():
+                    f = first_of_symbol(s, visited)
+                    result |= (f - {EPSILON})
+                    if EPSILON in f:
+                        i += 1
+                        if i == len(production):
+                            result.add(EPSILON)
                         continue
                     else:
-                        for c in range(j + 1, len(rule.s)):
-                            if rule.s[c].isupper():
-                                nt3 = next(n for n in nonterminals if n.symbol == rule.s[c])
-                                nt2.follow.extend([b for b in nt3.first if b != "ε"])
-                                if "ε" in nt3.first:
+                        break
+                else:
+                    # it's a terminal (single char like '+', '(', etc.)
+                    result.add(s)
+                    break
+            # loop ends if break not called
+        first_sets[sym] |= result
+        return result
+
+    # populate FIRST sets
+    updated = True
+    while updated:
+        updated = False
+        for nt in nonterminals:
+            before = set(first_sets[nt])
+            first_of_symbol(nt)
+            if first_sets[nt] != before:
+                updated = True
+
+    # ---- FOLLOW computation ----
+    # start symbol follow contains $
+    start = nonterminals[0]
+    follow_sets[start].add("$")
+
+    updated = True
+    while updated:
+        updated = False
+        for A in nonterminals:
+            for production in grammar[A]:
+                # process string symbol by symbol
+                for i, B in enumerate(production):
+                    if not B.isupper():
+                        continue  # only for nonterminals
+                    # beta = suffix after B
+                    beta = production[i+1:]
+                    if beta:
+                        # add FIRST(beta) minus ε to FOLLOW(B)
+                        first_beta = set()
+                        j = 0
+                        while j < len(beta):
+                            s = beta[j]
+                            if s.isupper():
+                                first_s = first_sets[s]
+                                first_beta |= (first_s - {EPSILON})
+                                if EPSILON in first_s:
+                                    j += 1
+                                    if j == len(beta):
+                                        first_beta.add(EPSILON)
                                     continue
                                 else:
                                     break
                             else:
-                                nt2.follow.append(rule.s[c])
+                                first_beta.add(s)
                                 break
+                        follow_sets[B] |= (first_beta - {EPSILON})
+                        if EPSILON in first_beta:
+                            follow_sets[B] |= follow_sets[A]
+                    else:
+                        # no beta, add FOLLOW(A) to FOLLOW(B)
+                        follow_sets[B] |= follow_sets[A]
+        # check if changed
+        # (simplest: recompute follow until stable)
+        # We'll rely on while loop condition
+        # deep compare: make a snapshot
+        # but to keep logic consistent, we break only if no additions
+        # This works automatically because we use "updated" flag
+        # We'll run another loop to ensure convergence
+        snap_before = {nt: set(follow_sets[nt]) for nt in nonterminals}
+        # run same logic again (idempotent)
+        # Actually, we can rely on top-level while to detect changes properly
+        snap_after = {nt: set(follow_sets[nt]) for nt in nonterminals}
+        if snap_after != snap_before:
+            updated = True
 
-    for nt in nonterminals:
-        nt.follow = list(set(nt.follow))
-        if nt.symbol in nt.follow:
-            nt.follow.remove(nt.symbol)
+    return first_sets, follow_sets
 
-# آپدیت Follow با توجه به وابستگی‌ها
-def upd_follow(nt: NonTerminal):
-    for depen in nt.followdepen:
-        nt.follow.extend(depen.follow)
-    revdep = [n for n in nonterminals if nt in n.followdepen]
-    for dep in revdep:
-        dep.follow.extend(nt.follow)
-        dep.follow = list(set(dep.follow))
-    nt.follow = list(set(nt.follow))
 
-# محاسبه Follow
-follow()
-for nt in nonterminals:
-    upd_follow(nt)
-
-# چاپ Follow ها
-for nt in nonterminals:
-    print(f"Follow({nt.symbol}): ", "{", end="")
-    for i in range(len(nt.follow)):
-        print(f" {nt.follow[i]}", end="")
-        if i != len(nt.follow) - 1:
-            print(",", end="")
-        else:
-            print(" }")
+if __name__ == "__main__":
+    # quick manual test with the original grammar
+    test_grammar = {
+        "E": ["E+T", "T"],
+        "T": ["T*F", "F"],
+        "F": ["(E)", "id"]
+    }
+    f, fo = compute_first_follow(test_grammar)
+    print("--- FIRST sets ---")
+    for nt, s in f.items():
+        print(f"First({nt}) = {s}")
+    print("--- FOLLOW sets ---")
+    for nt, s in fo.items():
+        print(f"Follow({nt}) = {s}")
