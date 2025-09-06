@@ -19,8 +19,9 @@ def main():
         print(f"Follow({nt}) = {s}")
 
     table, is_ll1 = ll1Com.build_ll1_table(grammar, first_sets, follow_sets)
-    print("\n--- LL(1) Parsing Table ---")
+    
     if is_ll1:
+        print("\n--- LL(1) Parsing Table ---")
         for nt, row in table.items():
             print(nt, ":", row)
     else:
